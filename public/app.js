@@ -2,6 +2,8 @@
   const canvas = document.getElementById('canvas');
   const clearBtn = document.getElementById('clearBtn');
   const roomLabel = document.getElementById('roomLabel');
+  const usernameInput = document.getElementById('usernameInput');
+  const userList = document.getElementById('userList');
   const ctx = canvas.getContext('2d');
 
   // Resize canvas to CSS size * devicePixelRatio
@@ -11,7 +13,6 @@
     canvas.width = Math.round(rect.width * dpr);
     canvas.height = Math.round(rect.height * dpr);
     ctx.scale(dpr, dpr);
-    // optional: redraw stored image if using an offscreen buffer
   }
   window.addEventListener('resize', resize);
   resize();
@@ -27,13 +28,19 @@
   const room = params.get('room') || 'default';
   roomLabel.textContent = `room: ${room}`;
 
+  // Username handling
+  const saved = localStorage.getItem('fliwr.username');
+  let username = saved || '';
+  usernameInput.value = username;
+
   // Setup WebSocket
   const wsProto = (location.protocol === 'https:') ? 'wss:' : 'ws:';
   const wsUrl = `${wsProto}//${location.host}`;
   const ws = new WebSocket(wsUrl);
 
   ws.addEventListener('open', () => {
-    ws.send(JSON.stringify({ type: 'join', room }));
+    // join with optional username
+    ws.send(JSON.stringify({ type: 'join', room, username }));
   });
 
   // Draw helper
@@ -70,6 +77,15 @@
       }
     } else if (data.type === 'clear') {
       ctx.clearRect(0, 0, canvas.width, canvas.height);
+    } else if (data.type === 'users' && Array.isArray(data.users)) {
+      // update user list
+      userList.innerHTML = '';
+      data.users.forEach(u => {
+        const li = document.createElement('li');
+        li.textContent = u.username || 'anonymous';
+        if (u.id === null) li.textContent += ' (you)';
+        userList.appendChild(li);
+      });
     }
   });
 
@@ -94,7 +110,6 @@
     drawLine(last.x, last.y, p.x, p.y);
     last = p;
     currentPoints.push(p);
-    // small throttle: send chunk every N points
     if (currentPoints.length >= 8) {
       sendDraw(currentPoints);
       currentPoints = [currentPoints[currentPoints.length - 1]];
@@ -135,4 +150,18 @@
       ws.send(JSON.stringify({ type: 'clear' }));
     }
   });
+
+  // Username input behavior
+  usernameInput.addEventListener('change', () => {
+    username = usernameInput.value.trim().slice(0,30);
+    localStorage.setItem('fliwr.username', username);
+    if (ws.readyState === WebSocket.OPEN) {
+      ws.send(JSON.stringify({ type: 'set_username', username }));
+    }
+  });
+
+  // set initial username if present
+  if (username) {
+    usernameInput.dispatchEvent(new Event('change'));
+  }
 })();
